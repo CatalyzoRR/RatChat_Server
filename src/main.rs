@@ -9,26 +9,26 @@ type ClientMap = Arc<Mutex<HashMap<SocketAddr, OwnedWriteHalf>>>;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind("10.16.4.22:56570").await?;
-    println!("Sunucu: {:?}", listener);
+    println!("Sunucu: {listener:?}");
 
     let clients: ClientMap = Arc::new(Mutex::new(HashMap::new()));
     loop {
         match listener.accept().await {
             Ok((mut stream, addr)) => {
-                println!("Yeni bağlantı kabul edildi: {}", addr);
+                println!("New connection accepted: {addr}");
                 let clients_clone = Arc::clone(&clients);
 
-                if let Err(e) = stream.write_all("Sohbete hoş gelidiniz.\n".as_bytes()).await {
-                    println!("{} adresine mesaj gönderilemedi: {}", addr, e);
+                if let Err(e) = stream.write_all("Welcome to chat.\n".as_bytes()).await {
+                    println!("Failed to send message to {addr}: {e}");
                 }
 
                 tokio::spawn(async move {
                     if let Err(e) = handle_connection(stream, addr, clients_clone).await {
-                        eprintln!("{} ile bağlantı kurulamadı: {}", addr, e);
+                        eprintln!("Failed to establish a connection with {addr}: {e}");
                     }
                 });
             }
-            Err(err) => eprintln!("Bağlantı kabul edilemedi: {}", err),
+            Err(err) => eprintln!("Connection couldn't be accepted: {err}"),
         }
     }
 }
@@ -43,10 +43,10 @@ async fn handle_connection(
 
     {
         clients.lock().await.insert(addr, writer);
-        println!("{} listeye eklendi.", addr);
+        println!("{addr} added to the list.");
     }
 
-    broadcast_message(&addr, "[SYSTEM]", &format!("{addr} katıldı."), &clients).await;
+    broadcast_message(&addr, "[SYSTEM]", &format!("{addr} joined."), &clients).await;
 
     println!(
         "[{}] Client {} added.",
@@ -76,7 +76,7 @@ async fn handle_connection(
                 println!("{line}");
                 let message = line.trim();
                 if !message.is_empty() {
-                    println!("[{}] Received {} bytes from {}: '{}'", timestamp, n, addr, message);
+                    println!("[{timestamp}] Received {n} bytes from {addr}: '{message}'");
                     broadcast_message(&addr, &addr.to_string(), message, &clients).await;
                 }
                 line.clear();
@@ -98,10 +98,10 @@ async fn handle_connection(
 
     {
         clients.lock().await.remove(&addr);
-        println!("{} listeden çıkarıldı.", addr);
+        println!("{addr} removed from the list.");
     }
 
-    broadcast_message(&addr, "[SYSTEM]", &format!("{} ayrıldı.", addr), &clients).await;
+    broadcast_message(&addr, "[SYSTEM]", &format!("{addr} ayrıldı."), &clients).await;
 
     println!(
         "[{}] Client {} removed.",
@@ -120,7 +120,7 @@ async fn broadcast_message(
     let mut clients_guard = clients.lock().await;
     let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
 
-    let formatted_message = format!("{}: {}\n", sender_name, message);
+    let formatted_message = format!("{sender_name}: {message}\n");
     let message_bytes = formatted_message.as_bytes();
 
     println!(
@@ -134,13 +134,13 @@ async fn broadcast_message(
     for (addr, writer) in clients_guard.iter_mut() {
         if *addr != *sender_addr {
             let target_addr = *addr;
-            println!("[{:?}] Attempting to send to {}", timestamp, target_addr);
+            println!("[{timestamp:?}] Attempting to send to {target_addr}");
             match writer.write_all(message_bytes).await {
                 Ok(_) => {
-                    println!("[{:?}] Successfully sent to {}", timestamp, target_addr); // Log 3: Başarılı gönderme
+                    println!("[{timestamp:?}] Successfully sent to {target_addr}"); // Log 3: Başarılı gönderme
                 }
                 Err(e) => {
-                    eprintln!("[{:?}] FAILED to send to {}: {}", timestamp, target_addr, e); // Log 4: Başarısız gönderme
+                    eprintln!("[{timestamp:?}] FAILED to send to {target_addr}: {e}"); // Log 4: Başarısız gönderme
                     // İsteğe bağlı: Burada istemciyi çıkarmayı düşünebiliriz
                 }
             }
